@@ -105,16 +105,36 @@ class FirebaseService:
             article: Article data to add
         """
         try:
-            # Clean up any category prefixes in the title
+            # Clean up any category prefixes in the title and ensure it's properly formatted
             topic_title = topic_title.strip()
-            if ': ' in topic_title:
-                topic_title = topic_title.split(': ', 1)[1]
+            # Remove any category prefix if present (e.g., 'POLITICS: ')
+            if ': ' in topic_title and topic_title.split(': ')[0].upper() in [cat.upper() for cat in ['politics', 'sports']]:
+                topic_title = topic_title.split(': ', 1)[1].strip()
+            
+            # Log the topic title being used
+            self.logger.info(f"Processing article for category '{category}' with topic title: '{topic_title}'")
             
             # Get or create the topic document
             topics_ref = self.db.collection('topics')
             
             # Query for existing topic with this title and category
-            query = topics_ref.where('title', '==', topic_title).where('category', '==', category).limit(1)
+            # First try exact match on topic_name, then fall back to title
+            query = (topics_ref
+                    .where('topic_name', '==', topic_title)
+                    .where('category', '==', category)
+                    .limit(1))
+            
+            existing_topics = list(query.stream())
+            
+            # If no match, try with title field for backward compatibility
+            if not existing_topics:
+                query = (topics_ref
+                        .where('title', '==', topic_title)
+                        .where('category', '==', category)
+                        .limit(1))
+            else:
+                self.logger.info(f"Found existing topic by topic_name: {topic_title}")
+            
             existing_topics = query.stream()
             
             topic_id = None
@@ -136,16 +156,21 @@ class FirebaseService:
                     'articleCount': firestore.Increment(1)
                 })
             else:
-                # Create new topic with category
+                # Create new topic with category and additional metadata
                 new_topic_ref = topics_ref.document()
                 topic_id = new_topic_ref.id
-                new_topic_ref.set({
+                topic_data = {
                     'title': topic_title,
                     'category': category,
                     'createdAt': current_time,
                     'latestUpdate': current_time,
-                    'articleCount': 1
-                })
+                    'articleCount': 1,
+                    'topic_name': topic_title,  # Store the dynamic topic name
+                    'first_article_headline': article.get('title', 'No title'),
+                    'first_article_url': article.get('url', '')
+                }
+                new_topic_ref.set(topic_data)
+                self.logger.info(f"Created new topic '{topic_title}' in category '{category}'")
             
             # Prepare article data with all required fields
             article_data = {

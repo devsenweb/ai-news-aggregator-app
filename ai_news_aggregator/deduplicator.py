@@ -2,7 +2,7 @@
 from typing import List, Dict, Any, Set, Tuple
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Any
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
@@ -57,7 +57,7 @@ class Deduplicator:
                     headline=article['headline'],
                     url=article['url'],
                     content=article.get('content', ''),
-                    publication_date=article.get('publication_date', datetime.utcnow()),
+                    publication_date=article.get('publication_date', datetime.utcnow().replace(tzinfo=timezone.utc)),
                     source=article.get('source', 'unknown'),
                     embedding=embedding
                 )
@@ -69,9 +69,14 @@ class Deduplicator:
         if not article_objects:
             return []
         
+        # Ensure all datetimes are timezone-aware
+        for article in article_objects:
+            if article.publication_date.tzinfo is None:
+                article.publication_date = article.publication_date.replace(tzinfo=timezone.utc)
+                
         # Group articles by time windows (same day)
         time_window = timedelta(days=1)
-        article_objects.sort(key=lambda x: x.publication_date)
+        article_objects.sort(key=lambda x: x.publication_date.timestamp() if x.publication_date else 0)
         
         unique_articles = []
         current_window = []
